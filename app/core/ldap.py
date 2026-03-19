@@ -1,5 +1,6 @@
 from ldap3 import Server, Connection, ALL, SIMPLE
 from ldap3.core.exceptions import LDAPException
+from ldap3.utils.conv import escape_filter_chars
 from app.core.config import settings
 
 
@@ -26,7 +27,7 @@ async def ldap_authenticate(username: str, password: str) -> dict | None:
     # Récupération des infos et groupes de l'utilisateur
     conn.search(
         search_base=settings.LDAP_BASE_DN,
-        search_filter=f"(sAMAccountName={username})",
+        search_filter=f"(sAMAccountName={escape_filter_chars(username)})",
         attributes=["displayName", "mail", "memberOf", "department", "title"],
     )
 

@@ -1,10 +1,12 @@
 import httpx
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 from app.core.ldap import ldap_authenticate
 from app.core.security import create_jwt
 from app.core.glpi_session import glpi_session_manager
+from app.core.token_store import glpi_token_store
 from app.core.config import settings
+from app.core.limiter import limiter
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -60,7 +62,8 @@ async def _get_glpi_user_token(username: str) -> str | None:
 
 
 @router.post("/login", response_model=LoginResponse)
-async def login(body: LoginRequest):
+@limiter.limit("5/minute")
+async def login(request: Request, body: LoginRequest):
     user_info = await ldap_authenticate(body.username, body.password)
     if not user_info:
         raise HTTPException(
@@ -76,13 +79,14 @@ async def login(body: LoginRequest):
                    "Activez l'accès API dans GLPI (Administration > Utilisateurs > Jetons API).",
         )
 
+    await glpi_token_store.set(user_info["username"], glpi_token)
+
     token = create_jwt({
         "sub": user_info["username"],
         "display_name": user_info["display_name"],
         "email": user_info["email"],
         "groups": user_info["groups"],
         "department": user_info["department"],
-        "glpi_user_token": glpi_token,
     })
 
     return LoginResponse(

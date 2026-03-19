@@ -1,6 +1,7 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.core.security import decode_jwt
+from app.core.token_store import glpi_token_store
 from app.core.glpi_client import GLPIClient
 
 bearer_scheme = HTTPBearer()
@@ -31,10 +32,10 @@ async def get_glpi_client(
     current_user: dict = Depends(get_current_user),
 ) -> GLPIClient:
     """Instancie un GLPIClient avec le token GLPI de l'utilisateur connecté."""
-    user_token = current_user.get("glpi_user_token")
+    user_token = glpi_token_store.get(current_user["sub"])
     if not user_token:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Aucun token GLPI associé à ce compte",
+            detail="Session expirée, veuillez vous reconnecter",
         )
     return GLPIClient(user_token)
