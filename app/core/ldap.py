@@ -6,13 +6,13 @@ from app.core.config import settings
 
 async def ldap_authenticate(username: str, password: str) -> dict | None:
     """
-    Authentifie un utilisateur contre l'AD lecreusot.priv.
+    Authentifie un utilisateur contre l'AD.
     Retourne un dict avec ses infos AD ou None si échec.
     """
     server = Server(settings.LDAP_HOST, port=settings.LDAP_PORT, get_info=ALL)
 
     # On tente un bind direct avec les credentials de l'utilisateur
-    user_dn = f"{username}@lecreusot.priv"
+    user_dn = f"{username}@{settings.LDAP_HOST}"
     try:
         conn = Connection(
             server,
