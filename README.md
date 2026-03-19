@@ -2,7 +2,7 @@
 
 Wrapper FastAPI de l'API REST GLPI, avec authentification Active Directory (LDAP) et sessions nominatives par utilisateur.
 
-Développé pour la **DSI de la Ville du Creusot** (domaine `lecreusot.priv`).
+Développé pour une DSI utilisant Active Directory et GLPI.
 
 ---
 
@@ -28,7 +28,7 @@ app/
 
 ### Flux d'authentification
 
-1. L'utilisateur s'authentifie avec ses identifiants AD (`username@lecreusot.priv`)
+1. L'utilisateur s'authentifie avec ses identifiants AD (`username@domaine.local`)
 2. Après succès LDAP, l'API récupère son `personal_token` GLPI via un compte de service
 3. Le `personal_token` GLPI est stocké **côté serveur** (`token_store.py`) — il n'est pas inclus dans le JWT
 4. Un JWT (8h) est émis — il contient uniquement les infos de l'utilisateur (nom, groupes, département)
@@ -123,7 +123,7 @@ app/
 
 - Python 3.11+
 - Accès à l'instance GLPI avec token applicatif et compte de service
-- Accès au contrôleur de domaine AD (`lecreusot.priv`)
+- Accès au contrôleur de domaine AD
 
 ### 1. Cloner et installer les dépendances
 
@@ -142,13 +142,13 @@ cp .env.example .env
 
 | Variable | Description | Exemple |
 |----------|-------------|---------|
-| `GLPI_URL` | URL de l'API REST GLPI | `http://172.16.8.22/apirest.php` |
+| `GLPI_URL` | URL de l'API REST GLPI | `http://glpi.domaine.local/apirest.php` |
 | `GLPI_USER_TOKEN` | Token du compte de service GLPI | |
 | `GLPI_APP_TOKEN` | Token applicatif GLPI | |
-| `LDAP_HOST` | Hôte du contrôleur de domaine | `lecreusot.priv` |
+| `LDAP_HOST` | Hôte du contrôleur de domaine | `domaine.local` |
 | `LDAP_PORT` | Port LDAP | `389` |
-| `LDAP_BASE_DN` | Base DN de recherche | `dc=lecreusot,dc=priv` |
-| `LDAP_BIND_USER` | DN du compte de service LDAP | `CN=svc-api,OU=Services,...` |
+| `LDAP_BASE_DN` | Base DN de recherche | `dc=domaine,dc=local` |
+| `LDAP_BIND_USER` | DN du compte de service LDAP | `CN=svc-api,OU=Services,DC=domaine,DC=local` |
 | `LDAP_BIND_PASSWORD` | Mot de passe du compte de service LDAP | |
 | `JWT_SECRET_KEY` | Clé secrète JWT **(changer en production)** | |
 | `JWT_ALGORITHM` | Algorithme JWT | `HS256` |
