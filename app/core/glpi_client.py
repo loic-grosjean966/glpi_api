@@ -160,6 +160,34 @@ class GLPIClient:
         return await self.get_sub_items("Ticket", ticket_id, "Document_Item")
 
     # ------------------------------------------------------------------ #
+    #  Ressources spécifiques : Base de connaissances                     #
+    # ------------------------------------------------------------------ #
+
+    async def get_knowbase_items(self, **params) -> list[dict]:
+        return await self.get_all_items("KnowbaseItem", **params)
+    
+    async def get_knowbase_item(self, item_id: int) -> dict:
+        return await self.get_item("KnowbaseItem", item_id)
+    
+    async def get_knowbase_categories(self) -> list[dict]:
+        return await self.get_all_items("KnowbaseItemCategory")
+    
+    async def get_knowbase_comments(self, item_id: int) -> list[dict]:
+        return await self.get_sub_items("KnowbaseItem", item_id, "KnowbaseItem_Comment")
+    
+    async def add_knowbase_comment(self, item_id: int, content: str, is_private: bool = False) -> dict:
+        return await self.create_sub_item("KnowbaseItem", item_id, "KnowbaseItem_Comment", {
+            "content": content,
+        })
+    
+    async def search_knowbase(self, query: str) -> dict:
+        return await self.search("KnowbaseItem", criteria=[{
+            "field": 1,  # Title
+            "searchtype": "contains",
+            "value": query
+        }])
+
+    # ------------------------------------------------------------------ #
     #  Ressources spécifiques : Users & Groups                            #
     # ------------------------------------------------------------------ #
 
