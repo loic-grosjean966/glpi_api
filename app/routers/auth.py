@@ -1,12 +1,16 @@
+import base64
+import logging
+import secrets
 import httpx
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from app.core.ldap import ldap_authenticate
 from app.core.security import create_jwt
-from app.core.glpi_session import glpi_session_manager
-from app.core.token_store import glpi_token_store
+from app.core.token_store import glpi_token_store, refresh_token_store
 from app.core.config import settings
 from app.core.limiter import limiter
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Authentification"])
 
@@ -24,48 +28,44 @@ class LoginRequest(BaseModel):
 
 
 class LoginResponse(BaseModel):
-    access_token: str = Field(
-        description="JWT Bearer token à inclure dans le header `Authorization` de toutes les requêtes suivantes."
-    )
+    access_token: str = Field(description="JWT Bearer token (30 min) — à inclure dans le header `Authorization`.")
+    refresh_token: str = Field(description="Token opaque (30 jours) — à utiliser sur `POST /auth/refresh` pour renouveler l'access token.")
     token_type: str = Field(default="bearer", description="Type de token — toujours `bearer`")
     display_name: str = Field(description="Nom complet de l'utilisateur (depuis l'AD)")
     groups: list[str] = Field(description="Groupes Active Directory de l'utilisateur")
 
 
-async def _get_glpi_user_token(username: str) -> str | None:
-    """
-    Utilise le compte de service pour récupérer le personal_token
-    GLPI de l'utilisateur (nécessaire pour les sessions nominatives).
-    """
-    try:
-        service_session = await glpi_session_manager.get_token(settings.GLPI_USER_TOKEN)
-    except Exception:
-        return None
+class RefreshRequest(BaseModel):
+    refresh_token: str = Field(description="Refresh token obtenu lors du login")
 
-    headers = {
-        "Session-Token": service_session,
-        "App-Token": settings.GLPI_APP_TOKEN,
-    }
 
+class RefreshResponse(BaseModel):
+    access_token: str = Field(description="Nouvel access token JWT (30 min)")
+    token_type: str = Field(default="bearer")
+
+
+async def _init_glpi_session(username: str, password: str) -> str | None:
+    """
+    Ouvre une session GLPI nominative via Basic Auth (username:password).
+    Retourne le session_token GLPI ou None si échec.
+    """
+    credentials = base64.b64encode(f"{username}:{password}".encode()).decode()
     async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.get(
-            f"{settings.GLPI_URL}/User",
-            headers=headers,
-            params={"searchText[name]": username, "range": "0-1"},
-        )
-        if resp.status_code != 200 or not resp.json():
+        try:
+            resp = await client.get(
+                f"{settings.GLPI_URL}/initSession",
+                headers={
+                    "Authorization": f"Basic {credentials}",
+                    "App-Token": settings.GLPI_APP_TOKEN,
+                },
+            )
+            if resp.status_code != 200:
+                logger.error(f"[init_glpi_session] Échec pour '{username}' : {resp.status_code} {resp.text}")
+                return None
+            return resp.json().get("session_token")
+        except Exception as e:
+            logger.error(f"[init_glpi_session] Erreur : {e}")
             return None
-
-        user_id = resp.json()[0]["id"]
-
-        resp2 = await client.get(
-            f"{settings.GLPI_URL}/User/{user_id}",
-            headers=headers,
-        )
-        if resp2.status_code != 200:
-            return None
-
-        return resp2.json().get("personal_token") or None
 
 
 @router.post(
@@ -73,16 +73,11 @@ async def _get_glpi_user_token(username: str) -> str | None:
     response_model=LoginResponse,
     summary="Connexion",
     description="""
-Authentifie un utilisateur via **Active Directory** (LDAP) puis vérifie qu'il dispose
-d'un token API dans GLPI.
+Authentifie un utilisateur via **Active Directory** (LDAP) et ouvre une session GLPI nominative.
 
-**Retourne un JWT Bearer token** à utiliser dans le header `Authorization` de toutes
-les requêtes protégées :
-```
-Authorization: Bearer <access_token>
-```
-
-Le token est valide **8 heures**. Passé ce délai, il faut se reconnecter.
+Retourne deux tokens :
+- **`access_token`** (JWT, 30 min) — à inclure dans le header `Authorization: Bearer <token>`
+- **`refresh_token`** (opaque, 30 jours) — à utiliser sur `POST /auth/refresh` pour renouveler silencieusement l'access token
 
 > **Limite :** 5 tentatives par minute par adresse IP. Au-delà : `429 Too Many Requests`.
 """,
@@ -102,26 +97,71 @@ async def login(request: Request, body: LoginRequest):
             detail="Identifiants invalides",
         )
 
-    glpi_token = await _get_glpi_user_token(body.username)
-    if not glpi_token:
+    glpi_session = await _init_glpi_session(body.username, body.password)
+    if not glpi_session:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Aucun token API GLPI trouvé pour ce compte. "
-                   "Activez l'accès API dans GLPI (Administration > Utilisateurs > Jetons API).",
+            detail="Impossible d'ouvrir une session GLPI. "
+                   "Vérifiez que le compte existe dans GLPI et que l'App-Token est valide.",
         )
 
-    await glpi_token_store.set(user_info["username"], glpi_token)
+    await glpi_token_store.set(user_info["username"], glpi_session)
 
-    token = create_jwt({
+    jwt_payload = {
         "sub": user_info["username"],
         "display_name": user_info["display_name"],
         "email": user_info["email"],
         "groups": user_info["groups"],
         "department": user_info["department"],
-    })
+    }
+    access_token = create_jwt(jwt_payload)
+    refresh_token = secrets.token_urlsafe(32)
+    await refresh_token_store.set(refresh_token, user_info["username"])
 
     return LoginResponse(
-        access_token=token,
+        access_token=access_token,
+        refresh_token=refresh_token,
         display_name=user_info["display_name"],
         groups=user_info["groups"],
     )
+
+
+@router.post(
+    "/refresh",
+    response_model=RefreshResponse,
+    summary="Renouveler l'access token",
+    description="""
+Échange un **refresh token** valide contre un nouvel **access token** JWT (30 min).
+
+À appeler silencieusement depuis l'application mobile quand l'access token expire,
+sans redemander les identifiants à l'utilisateur.
+
+> Le refresh token reste valide 30 jours. Il est invalidé au logout.
+""",
+    responses={
+        200: {"description": "Nouvel access token émis"},
+        401: {"description": "Refresh token invalide ou expiré — reconnexion requise"},
+    },
+)
+async def refresh(body: RefreshRequest):
+    username = refresh_token_store.get_username(body.refresh_token)
+    if not username:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token invalide ou expiré, veuillez vous reconnecter.",
+        )
+    access_token = create_jwt({"sub": username})
+    return RefreshResponse(access_token=access_token)
+
+
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Déconnexion",
+    description="Invalide le refresh token. L'access token reste valide jusqu'à son expiration naturelle (30 min max).",
+    responses={
+        204: {"description": "Déconnexion réussie"},
+    },
+)
+async def logout(body: RefreshRequest):
+    await refresh_token_store.delete(body.refresh_token)

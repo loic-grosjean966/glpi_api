@@ -32,10 +32,10 @@ async def get_glpi_client(
     current_user: dict = Depends(get_current_user),
 ) -> GLPIClient:
     """Instancie un GLPIClient avec le token GLPI de l'utilisateur connecté."""
-    user_token = glpi_token_store.get(current_user["sub"])
-    if not user_token:
+    session_token = glpi_token_store.get(current_user["sub"])
+    if not session_token:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Session expirée, veuillez vous reconnecter",
         )
-    return GLPIClient(user_token)
+    return GLPIClient(session_token)

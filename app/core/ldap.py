@@ -12,7 +12,7 @@ async def ldap_authenticate(username: str, password: str) -> dict | None:
     server = Server(settings.LDAP_HOST, port=settings.LDAP_PORT, get_info=ALL)
 
     # On tente un bind direct avec les credentials de l'utilisateur
-    user_dn = f"{username}@{settings.LDAP_HOST}"
+    user_dn = f"{username}@{settings.LDAP_DOMAIN}"
     try:
         conn = Connection(
             server,

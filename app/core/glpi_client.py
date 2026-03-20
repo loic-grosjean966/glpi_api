@@ -1,9 +1,8 @@
 import logging
 import httpx
 from typing import Any
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from app.core.config import settings
-from app.core.glpi_session import glpi_session_manager
 
 logger = logging.getLogger(__name__)
 
@@ -11,29 +10,28 @@ logger = logging.getLogger(__name__)
 class GLPIClient:
     """
     Wrapper complet de l'API REST GLPI.
-    Instancié par requête avec le user_token de l'utilisateur connecté
+    Instancié par requête avec le session_token GLPI de l'utilisateur connecté
     → toutes les actions sont tracées nominativement dans GLPI.
     """
 
-    def __init__(self, user_token: str):
-        self._user_token = user_token
+    def __init__(self, session_token: str):
+        self._session_token = session_token
 
     # ------------------------------------------------------------------ #
     #  Méthode de base                                                     #
     # ------------------------------------------------------------------ #
 
     async def _request(self, method: str, endpoint: str, **kwargs) -> Any:
-        token = await glpi_session_manager.get_token(self._user_token)
-        response = await self._do_request(method, endpoint, token, **kwargs)
+        response = await self._do_request(method, endpoint, self._session_token, **kwargs)
         logger.debug("GLPI %s %s → %s", method, endpoint, response.status_code)
 
-        # Session expirée → GLPI retourne 401 ou parfois 403 "Not Authentified"
+        # Session expirée → forcer une reconnexion
         is_not_auth = response.status_code in (401, 403) and "Not Authentified" in response.text
         if response.status_code == 401 or is_not_auth:
-            logger.info("Session GLPI expirée pour user_token %s...", self._user_token[:8])
-            await glpi_session_manager.invalidate(self._user_token)
-            token = await glpi_session_manager.get_token(self._user_token)
-            response = await self._do_request(method, endpoint, token, **kwargs)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session GLPI expirée, veuillez vous reconnecter.",
+            )
 
         self._raise_for_glpi_error(response)
         return response.json() if response.content else None
@@ -171,12 +169,13 @@ class GLPIClient:
     async def get_users(self, **params) -> list[dict]:
         return await self.get_all_items("User", **params)
 
-    async def get_user_by_name(self, username: str) -> dict | None:
-        results = await self.search("User", criteria=[
-            {"field": 1, "searchtype": "equals", "value": username}
-        ])
-        items = results.get("data", [])
-        return items[0] if items else None
+    async def get_current_user_profile(self) -> dict | None:
+        """Retourne le profil GLPI de l'utilisateur de la session active."""
+        session = await self._request("GET", "/getFullSession")
+        user_id = session.get("session", {}).get("glpiID")
+        if not user_id:
+            return None
+        return await self.get_user(user_id)
 
     async def get_group(self, group_id: int) -> dict:
         return await self.get_item("Group", group_id)

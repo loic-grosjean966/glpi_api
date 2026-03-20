@@ -40,7 +40,7 @@ async def get_me(
     current_user: dict = Depends(get_current_user),
     glpi: GLPIClient = Depends(get_glpi_client),
 ):
-    return await glpi.get_user_by_name(current_user["sub"])
+    return await glpi.get_current_user_profile()
 
 
 @router.get(

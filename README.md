@@ -145,7 +145,8 @@ cp .env.example .env
 | `GLPI_URL` | URL de l'API REST GLPI | `http://glpi.domaine.local/apirest.php` |
 | `GLPI_USER_TOKEN` | Token du compte de service GLPI | |
 | `GLPI_APP_TOKEN` | Token applicatif GLPI | |
-| `LDAP_HOST` | Hôte du contrôleur de domaine | `domaine.local` |
+| `LDAP_HOST` | IP ou FQDN du contrôleur de domaine | `192.168.1.10` |
+| `LDAP_DOMAIN` | Nom de domaine AD (pour le UPN) | `domaine.local` |
 | `LDAP_PORT` | Port LDAP | `389` |
 | `LDAP_BASE_DN` | Base DN de recherche | `dc=domaine,dc=local` |
 | `LDAP_BIND_USER` | DN du compte de service LDAP | `CN=svc-api,OU=Services,DC=domaine,DC=local` |
