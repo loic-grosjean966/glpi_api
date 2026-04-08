@@ -7,7 +7,7 @@ from app.core.limiter import limiter
 from app.core.logging_config import setup_logging
 from app.core.glpi_session import glpi_session_manager
 from app.core.config import settings
-from app.routers import auth, tickets, users
+from app.routers import auth, tickets, users, knowledge_base
 
 setup_logging()
 
@@ -70,6 +70,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.include_router(auth.router)
 app.include_router(tickets.router)
+app.include_router(knowledge_base.router)
 app.include_router(users.router)
 
 

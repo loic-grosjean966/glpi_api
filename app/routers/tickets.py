@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from app.dependencies import get_current_user, get_glpi_client
 from app.core.glpi_client import GLPIClient
 
@@ -11,6 +11,7 @@ router = APIRouter(prefix="/tickets", tags=["Tickets"])
 # ------------------------------------------------------------------ #
 
 class TicketCreate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
     name: str = Field(..., description="Titre du ticket", examples=["Imprimante bureau 12 hors service"])
     content: str = Field(..., description="Description détaillée du problème ou de la demande", examples=["L'imprimante HP LaserJet du bureau 12 ne répond plus depuis ce matin."])
     urgency: int = Field(
@@ -28,6 +29,36 @@ class TicketCreate(BaseModel):
         default=0,
         description="ID de la catégorie ITIL dans GLPI. `0` = aucune catégorie",
         examples=[0],
+    )
+    _users_id_requester: int | None = Field(
+        default=None,
+        description="ID GLPI du demandeur. Par défaut, le ticket est créé au nom de l'utilisateur connecté (ID extrait de son token GLPI).",
+        examples=[123],
+    )
+    _groups_id_requester: int | None = Field(
+        default=None,
+        description="ID GLPI du groupe demandeur. Optionnel, rarement utilisé.",
+        examples=[45],
+    )
+    _users_id_assign: int | None = Field(
+        default=None,
+        description="ID GLPI du technicien à affecter dès la création. Par défaut, le ticket est créé sans affectation (statut 'Nouveau').",
+        examples=[67],
+    )
+    _groups_id_assign: int | None = Field(
+        default=None,
+        description="ID GLPI du groupe à affecter dès la création. Par défaut, le ticket est créé sans affectation (statut 'Nouveau').",
+        examples=[89],
+    )
+    _users_id_observer: list[int] | None = Field(
+        default=None,
+        description="Liste d'IDs GLPI des utilisateurs à ajouter en observateurs du ticket. Optionnel.",
+        examples=[[123, 456]],
+    )  
+    _groups_id_observer: list[int] | None = Field(
+        default=None,
+        description="Liste d'IDs GLPI des groupes à ajouter en observateurs du ticket. Optionnel.",
+        examples=[[45, 67]],
     )
 
 
